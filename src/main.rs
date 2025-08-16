@@ -6,6 +6,8 @@ fn main() {
     println!("Logs from your program will appear here!");
 
     // Uncomment this block to pass the first stage
+    // Writing a comment so I can push again
+
     //
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
     
