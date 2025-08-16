@@ -1,6 +1,6 @@
 #![allow(unused_imports)]
 use std::net::{TcpListener, TcpStream};
-use std::io::Write;
+use std::io::{Read, Write};
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -27,7 +27,7 @@ fn main() {
 fn handle_connection(mut stream: TcpStream) {
     println!("accepted new connection");
     let mut buf = [0; 512];
-    let _read_bytes = stream.read(buf).unwrap();
+    let _read_bytes = stream.read(&mut buf).unwrap();
     if std::str::from_utf8(&buf).unwrap().contains("PING") {
         stream.write_all(b"+PONG\r\n").unwrap();
     }
