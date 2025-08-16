@@ -26,5 +26,7 @@ fn main() {
 
 fn handle_connection(mut stream: &TcpStream) {
     println!("accepted new connection");
+    let mut buf = [0; 512];
+    let _read_bytes = stream.read(&mut buf).unwrap();
     stream.write_all(b"+PONG\r\n").unwrap();
 }
