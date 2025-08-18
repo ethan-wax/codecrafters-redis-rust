@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 use std::net::{TcpListener, TcpStream};
 use std::io::{Read, Write};
+use std::thread;
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -15,7 +16,9 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(mut _stream) => {
-                handle_connection(&mut _stream);
+                let handle = thread::spawn(move || {
+                    handle_connection(&mut _stream);
+                });
             }
             Err(e) => {
                 println!("error: {}", e);
