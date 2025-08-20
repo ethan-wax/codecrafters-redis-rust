@@ -31,20 +31,27 @@ fn main() {
 }
 
 fn handle_connection(mut stream: &TcpStream) {
-    println!("accepted new connection");
+    let mut buf = [0; 1024];
+
     loop {
-        println!("entered loop");
-        let mut buf = String::new();
-        let _read_bytes = stream.read_to_string(&mut buf);
-        println!(&buf);
-        let com = parse_command(&buf).unwrap();
-        match com {
-            Command::PING => {
-                stream.write_all(b"+PONG\r\n").unwrap();
+        match stream.read(&mut buf) {
+            Ok(0) => {
+                println!("client disconnected");
+                break;
             }
-            Command::ECHO(length, text) => {
-                let s = format!("${}\r\n{}\r\n", length, text);
-                stream.write_all(s.as_bytes()).unwrap();
+            Ok(n) => {
+                let s = String::from_utf8_lossy(&buf[..n]);
+                
+                match parse_command(&s).unwrap() {
+                    Command::PING => stream.write_all(b"+PONG\r\n").unwrap(),
+                    Command::ECHO(length, text) => {
+                        stream.write_all(format!("${}\r\n{}\r\n", length, text).as_bytes()).unwrap();
+                    }
+                }
+            }
+            Err(_) => {
+                println!("error reading into buffer");
+                break;
             }
         }
     }
