@@ -1,6 +1,6 @@
 #![allow(unused_imports)]
-use std::net::{TcpListener, TcpStream};
 use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::thread;
 
 pub mod parse;
@@ -15,7 +15,7 @@ fn main() {
 
     //
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
-    
+
     for stream in listener.incoming() {
         match stream {
             Ok(mut _stream) => {
@@ -41,11 +41,13 @@ fn handle_connection(mut stream: &TcpStream) {
             }
             Ok(n) => {
                 let s = String::from_utf8_lossy(&buf[..n]);
-                
+
                 match parse_command(&s).unwrap() {
                     Command::PING => stream.write_all(b"+PONG\r\n").unwrap(),
                     Command::ECHO(length, text) => {
-                        stream.write_all(format!("${}\r\n{}\r\n", length, text).as_bytes()).unwrap();
+                        stream
+                            .write_all(format!("${}\r\n{}\r\n", length, text).as_bytes())
+                            .unwrap();
                     }
                 }
             }
