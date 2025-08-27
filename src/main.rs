@@ -2,9 +2,16 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use once_cell::sync::Lazy;
 
 pub mod parse;
 use parse::{parse_command, Command};
+
+static STORE: Lazy<Arc<Mutex<HashMap<String, String>>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(HashMap::new()))
+});
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -47,6 +54,24 @@ fn handle_connection(mut stream: &TcpStream) {
                     Command::ECHO(length, text) => {
                         stream
                             .write_all(format!("${}\r\n{}\r\n", length, text).as_bytes())
+                            .unwrap();
+                    }
+                    Command::SET(key, value) => {
+                        {
+                            let mut store_guard = STORE.lock().unwrap();
+                            store_guard.insert(key, value);
+                        }
+                        stream
+                            .write_all("+OK\r\n".as_bytes())
+                            .unwrap();
+                    }
+                    Command::GET(key) => {
+                        let value = {
+                            let store_guard = STORE.lock().unwrap();
+                            store_guard.get(&key).cloned().unwrap()
+                        };
+                        stream
+                            .write_all(format!("${}\r\n{}\r\n", value.len() as i32, value).as_bytes())
                             .unwrap();
                     }
                 }
