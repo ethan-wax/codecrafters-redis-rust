@@ -1,15 +1,17 @@
 #![allow(unused_imports)]
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::thread;
+use std::{result, thread};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use once_cell::sync::Lazy;
+use tokio::stream;
+use std::time::SystemTime;
 
 pub mod parse;
 use parse::{parse_command, Command};
 
-static STORE: Lazy<Arc<Mutex<HashMap<String, String>>>> = Lazy::new(|| {
+static STORE: Lazy<Arc<Mutex<HashMap<String, (String, Option<std::time::SystemTime>)>>>> = Lazy::new(|| {
     Arc::new(Mutex::new(HashMap::new()))
 });
 
@@ -50,36 +52,71 @@ fn handle_connection(mut stream: &TcpStream) {
                 let s = String::from_utf8_lossy(&buf[..n]);
 
                 match parse_command(&s).unwrap() {
-                    Command::PING => stream.write_all(b"+PONG\r\n").unwrap(),
-                    Command::ECHO(length, text) => {
-                        stream
-                            .write_all(format!("${}\r\n{}\r\n", length, text).as_bytes())
-                            .unwrap();
-                    }
-                    Command::SET(key, value) => {
-                        {
-                            let mut store_guard = STORE.lock().unwrap();
-                            store_guard.insert(key, value);
-                        }
-                        stream
-                            .write_all("+OK\r\n".as_bytes())
-                            .unwrap();
-                    }
-                    Command::GET(key) => {
-                        let value = {
-                            let store_guard = STORE.lock().unwrap();
-                            store_guard.get(&key).cloned().unwrap()
-                        };
-                        stream
-                            .write_all(format!("${}\r\n{}\r\n", value.len() as i32, value).as_bytes())
-                            .unwrap();
-                    }
+                    Command::PING => handle_ping(stream),
+                    Command::ECHO(length, text) => handle_echo(stream, &length, &text),
+                    Command::SET(key, value, exp) => handle_set(stream, &key, &value, &exp),
+                    Command::GET(key) => handle_get(stream, &key),
                 }
             }
-            Err(_) => {
-                println!("error reading into buffer");
-                break;
+            Err(e) => {
+                println!("Error: {:?}", e);
+                bulk_null(stream)
             }
         }
     }
+}
+
+fn handle_ping(mut stream: &TcpStream) {
+    stream.write_all(b"+PONG\r\n").unwrap()
+}
+
+fn handle_echo(mut stream: &TcpStream, length: &i32, text: &String) {
+    stream
+        .write_all(format!("${}\r\n{}\r\n", length, text).as_bytes())
+        .unwrap();
+}
+
+fn handle_set(mut stream: &TcpStream, key: &String, value: &String, exp: &Option<SystemTime>) {
+    {
+        let mut store_guard = STORE.lock().unwrap();
+        store_guard.insert(key.clone(), (value.clone(), exp.clone()));
+    }
+    stream
+        .write_all("+OK\r\n".as_bytes())
+        .unwrap();
+}
+
+fn handle_get(mut stream: &TcpStream, key: &String) {
+    let result = {
+        let store_guard = STORE.lock().unwrap();
+        store_guard.get(key).cloned()
+    };
+
+    match result {
+        Some((value, None)) => {
+            stream
+                .write_all(format!("${}\r\n{}\r\n", value.len() as i32, value).as_bytes())
+                .unwrap();
+        }
+        Some((value, Some(time))) => {
+            if SystemTime::now() > time {
+                {
+                    let mut store_guard = STORE.lock().unwrap();
+                    store_guard.remove(key);
+                }
+                bulk_null(stream);
+            } else {
+                stream
+                    .write_all(format!("${}\r\n{}\r\n", value.len() as i32, value).as_bytes())
+                    .unwrap();
+            }
+        }
+        None => bulk_null(stream),
+    }
+}
+
+fn bulk_null(mut stream: &TcpStream) {
+    stream
+        .write_all("$-1\r\n".as_bytes())
+        .unwrap();
 }
