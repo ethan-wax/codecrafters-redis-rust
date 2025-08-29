@@ -11,7 +11,14 @@ use std::time::SystemTime;
 pub mod parse;
 use parse::{parse_command, Command};
 
-static STORE: Lazy<Arc<Mutex<HashMap<String, (String, Option<std::time::SystemTime>)>>>> = Lazy::new(|| {
+type StoreType = HashMap<String, (String, Option<std::time::SystemTime>)>;
+type ListStoreType = HashMap<String, Vec<String>>;
+
+static STORE: Lazy<Arc<Mutex<StoreType>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(HashMap::new()))
+});
+
+static LIST_STORE: Lazy<Arc<Mutex<ListStoreType>>> = Lazy::new(|| {
     Arc::new(Mutex::new(HashMap::new()))
 });
 
@@ -56,6 +63,7 @@ fn handle_connection(mut stream: &TcpStream) {
                     Command::ECHO(length, text) => handle_echo(stream, &length, &text),
                     Command::SET(key, value, exp) => handle_set(stream, &key, &value, &exp),
                     Command::GET(key) => handle_get(stream, &key),
+                    Command::RPUSH(key, value) => handle_rpush(stream, &key, &value),
                 }
             }
             Err(e) => {
@@ -118,5 +126,17 @@ fn handle_get(mut stream: &TcpStream, key: &String) {
 fn bulk_null(mut stream: &TcpStream) {
     stream
         .write_all("$-1\r\n".as_bytes())
+        .unwrap();
+}
+
+fn handle_rpush(mut stream: &TcpStream, key: &String, value: &String) {
+    let pos = {
+        let mut list_store_guard = LIST_STORE.lock().unwrap();
+        let list = list_store_guard.entry(key.clone()).or_insert_with(Vec::new);
+        list.push(value.clone());
+        list.len() as i32
+    };
+    stream
+        .write_all(format!(":{}\r\n", pos).as_bytes())
         .unwrap();
 }
