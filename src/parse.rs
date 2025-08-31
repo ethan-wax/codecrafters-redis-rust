@@ -1,12 +1,14 @@
+use std::fmt::format;
 use std::result::Result;
 use std::time::{Duration, SystemTime};
 
 pub enum Command {
     PING,
-    ECHO(i32, String),
+    ECHO(String),
     SET(String, String, Option<SystemTime>),
     GET(String),
     RPUSH(String, Vec<String>),
+    LRANGE(String, i32, i32)
 }
 
 fn extract_text(chunks: &Vec<&str>, pos: usize) -> Result<String, String> {
@@ -26,6 +28,15 @@ fn extract_text(chunks: &Vec<&str>, pos: usize) -> Result<String, String> {
     Ok(text.to_string())
 }
 
+fn extract_int(chunks: &Vec<&str>, pos: usize) -> Result<i32, String> {
+    let num_str = extract_text(chunks, pos)?;
+    let num = num_str
+        .parse::<i32>()
+        .map_err(|_| format!("Expected an integer but got: {}", num_str))?;
+    
+    Ok(num)
+}
+
 pub fn parse_command(command: &str) -> Result<Command, String> {
     let mut chunks: Vec<&str> = command.split("\r\n").collect();
     chunks.pop(); // The last item is always empty
@@ -40,6 +51,7 @@ pub fn parse_command(command: &str) -> Result<Command, String> {
         ("*5", "SET") => parse_set_expiry(&chunks),
         ("*2", "GET") => parse_get(&chunks),
         (_, "RPUSH") => parse_rpush(&chunks),
+        ("*4", "LRANGE") => parse_lrange(&chunks),
         _ => Err(format!("Command not recognized: {}", args)),
     }
 }
@@ -47,7 +59,7 @@ pub fn parse_command(command: &str) -> Result<Command, String> {
 
 fn parse_echo(chunks: &Vec<&str>) -> Result<Command, String> {
     let text = extract_text(chunks, 3)?;
-    Ok(Command::ECHO(text.len() as i32, text))
+    Ok(Command::ECHO(text))
 }
 
 fn parse_set(chunks: &Vec<&str>) -> Result<Command, String> {
@@ -92,4 +104,11 @@ fn parse_rpush(chunks: &Vec<&str>) -> Result<Command, String> {
         val_vec.push(extract_text(chunks, i)?);
     }
     Ok(Command::RPUSH(key, val_vec))
+}
+
+fn parse_lrange(chunks: &Vec<&str>) -> Result<Command, String> {
+    let key = extract_text(chunks, 3)?;
+    let start = extract_int(chunks, 5)?;
+    let end = extract_int(chunks, 7)?;
+    Ok(Command::LRANGE(key, start, end))
 }

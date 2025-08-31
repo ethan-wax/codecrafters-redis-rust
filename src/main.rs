@@ -1,12 +1,14 @@
 #![allow(unused_imports)]
+use once_cell::sync::Lazy;
+use std::cmp::{max, min};
+use std::collections::HashMap;
+use std::i32::MIN;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::{result, thread};
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use once_cell::sync::Lazy;
-use tokio::stream;
 use std::time::SystemTime;
+use std::{result, thread};
+use tokio::stream;
 
 pub mod parse;
 use parse::{parse_command, Command};
@@ -14,13 +16,10 @@ use parse::{parse_command, Command};
 type StoreType = HashMap<String, (String, Option<std::time::SystemTime>)>;
 type ListStoreType = HashMap<String, Vec<String>>;
 
-static STORE: Lazy<Arc<Mutex<StoreType>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(HashMap::new()))
-});
+static STORE: Lazy<Arc<Mutex<StoreType>>> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
-static LIST_STORE: Lazy<Arc<Mutex<ListStoreType>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(HashMap::new()))
-});
+static LIST_STORE: Lazy<Arc<Mutex<ListStoreType>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
@@ -53,10 +52,11 @@ fn handle_connection(mut stream: &TcpStream) {
 
                 match parse_command(&s).unwrap() {
                     Command::PING => handle_ping(stream),
-                    Command::ECHO(length, text) => handle_echo(stream, &length, &text),
+                    Command::ECHO(text) => handle_echo(stream, &text),
                     Command::SET(key, value, exp) => handle_set(stream, &key, &value, &exp),
                     Command::GET(key) => handle_get(stream, &key),
                     Command::RPUSH(key, val_vec) => handle_rpush(stream, &key, &val_vec),
+                    Command::LRANGE(key, start, end) => handle_lrange(stream, &key, &start, &end),
                 }
             }
             Err(e) => {
@@ -71,9 +71,9 @@ fn handle_ping(mut stream: &TcpStream) {
     stream.write_all(b"+PONG\r\n").unwrap()
 }
 
-fn handle_echo(mut stream: &TcpStream, length: &i32, text: &String) {
+fn handle_echo(mut stream: &TcpStream, text: &String) {
     stream
-        .write_all(format!("${}\r\n{}\r\n", length, text).as_bytes())
+        .write_all(format!("${}\r\n{}\r\n", text.len(), text).as_bytes())
         .unwrap();
 }
 
@@ -82,9 +82,7 @@ fn handle_set(mut stream: &TcpStream, key: &String, value: &String, exp: &Option
         let mut store_guard = STORE.lock().unwrap();
         store_guard.insert(key.clone(), (value.clone(), exp.clone()));
     }
-    stream
-        .write_all("+OK\r\n".as_bytes())
-        .unwrap();
+    stream.write_all("+OK\r\n".as_bytes()).unwrap();
 }
 
 fn handle_get(mut stream: &TcpStream, key: &String) {
@@ -117,9 +115,7 @@ fn handle_get(mut stream: &TcpStream, key: &String) {
 }
 
 fn bulk_null(mut stream: &TcpStream) {
-    stream
-        .write_all("$-1\r\n".as_bytes())
-        .unwrap();
+    stream.write_all("$-1\r\n".as_bytes()).unwrap();
 }
 
 fn handle_rpush(mut stream: &TcpStream, key: &String, val_vec: &Vec<String>) {
@@ -132,4 +128,34 @@ fn handle_rpush(mut stream: &TcpStream, key: &String, val_vec: &Vec<String>) {
     stream
         .write_all(format!(":{}\r\n", pos).as_bytes())
         .unwrap();
+}
+
+fn write_empty_array(mut stream: &TcpStream) {
+    stream.write_all("*0\r\n".as_bytes()).unwrap();
+}
+
+fn handle_lrange(mut stream: &TcpStream, key: &String, start: &i32, end: &i32) {
+    let result = {
+        let list_store_guard = LIST_STORE.lock().unwrap();
+        list_store_guard.get(key).cloned()
+    };
+
+    match result {
+        Some(list) => {
+            let len = list.len() as i32;
+            if *start >= len || start > end {
+                write_empty_array(stream);
+            } else {
+                let start_pos = max(*start, 0) as usize;
+                let end_pos = min(*end + 1, len) as usize;
+                let slice = &list[start_pos..end_pos];
+                let mut output = format!("*{}\r\n", end_pos - start_pos);
+                for value in slice {
+                    output.push_str(&format!("${}\r\n{}\r\n", value.len(), value));
+                }
+                stream.write_all(output.as_bytes()).unwrap();
+            }
+        }
+        None => write_empty_array(stream),
+    }
 }
