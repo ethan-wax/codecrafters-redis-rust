@@ -23,13 +23,6 @@ static LIST_STORE: Lazy<Arc<Mutex<ListStoreType>>> = Lazy::new(|| {
 });
 
 fn main() {
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    println!("Logs from your program will appear here!");
-
-    // Uncomment this block to pass the first stage
-    // Writing a comment so I can push again
-
-    //
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
 
     for stream in listener.incoming() {
@@ -63,7 +56,7 @@ fn handle_connection(mut stream: &TcpStream) {
                     Command::ECHO(length, text) => handle_echo(stream, &length, &text),
                     Command::SET(key, value, exp) => handle_set(stream, &key, &value, &exp),
                     Command::GET(key) => handle_get(stream, &key),
-                    Command::RPUSH(key, value) => handle_rpush(stream, &key, &value),
+                    Command::RPUSH(key, val_vec) => handle_rpush(stream, &key, &val_vec),
                 }
             }
             Err(e) => {
@@ -129,11 +122,11 @@ fn bulk_null(mut stream: &TcpStream) {
         .unwrap();
 }
 
-fn handle_rpush(mut stream: &TcpStream, key: &String, value: &String) {
+fn handle_rpush(mut stream: &TcpStream, key: &String, val_vec: &Vec<String>) {
     let pos = {
         let mut list_store_guard = LIST_STORE.lock().unwrap();
         let list = list_store_guard.entry(key.clone()).or_insert_with(Vec::new);
-        list.push(value.clone());
+        list.extend(val_vec.iter().cloned());
         list.len() as i32
     };
     stream

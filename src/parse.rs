@@ -6,16 +6,17 @@ pub enum Command {
     ECHO(i32, String),
     SET(String, String, Option<SystemTime>),
     GET(String),
-    RPUSH(String, String),
+    RPUSH(String, Vec<String>),
 }
 
 fn extract_text(chunks: &Vec<&str>, pos: usize) -> Result<String, String> {
-    let text_length = chunks
+    let length_str = chunks
         .get(pos)
         .ok_or("Missing length".to_string())?
-        .trim_start_matches("$")
+        .trim_start_matches("$");
+    let text_length = length_str
         .parse::<i32>()
-        .map_err(|_| "Length must be an integer".to_string())?;
+        .map_err(|_| format!("Length must be an integer, got: '{}'", length_str))?;
     let text = chunks.get(pos+1).ok_or("Missing text".to_string())?;
 
     if text.len() as i32 != text_length {
@@ -26,9 +27,11 @@ fn extract_text(chunks: &Vec<&str>, pos: usize) -> Result<String, String> {
 }
 
 pub fn parse_command(command: &str) -> Result<Command, String> {
-    let chunks: Vec<&str> = command.split("\r\n").collect();
+    let mut chunks: Vec<&str> = command.split("\r\n").collect();
+    chunks.pop(); // The last item is always empty
     let args = chunks.get(0).ok_or("Missing argument length".to_string())?;
     let com = extract_text(&chunks, 1)?;
+
 
     match (*args, com.as_str()) {
         ("*1", "PING") => Ok(Command::PING),
@@ -36,7 +39,7 @@ pub fn parse_command(command: &str) -> Result<Command, String> {
         ("*3", "SET") => parse_set(&chunks),
         ("*5", "SET") => parse_set_expiry(&chunks),
         ("*2", "GET") => parse_get(&chunks),
-        ("*3", "RPUSH") => parse_rpush(&chunks),
+        (_, "RPUSH") => parse_rpush(&chunks),
         _ => Err(format!("Command not recognized: {}", args)),
     }
 }
@@ -62,11 +65,12 @@ fn parse_set_expiry(chunks: &Vec<&str>) -> Result<Command, String> {
         return Err(format!("Unrecognized flag: {}", expiry));
     }
 
-    let millis = chunks
+    let expire_str = chunks
         .get(10)
-        .ok_or("Missing expire time")?
+        .ok_or("Missing expire time")?;
+    let millis = expire_str
         .parse::<u64>()
-        .map_err(|e| format!("Expire time {e} must be an integer"))?;
+        .map_err(|_| format!("Expire time must be an integer, got: '{}'", expire_str))?;
     let exp_time = SystemTime::now() + Duration::from_millis(millis);
 
     Ok(Command::SET(
@@ -83,6 +87,9 @@ fn parse_get(chunks: &Vec<&str>) -> Result<Command, String> {
 
 fn parse_rpush(chunks: &Vec<&str>) -> Result<Command, String> {
     let key = extract_text(chunks, 3)?;
-    let val = extract_text(chunks, 5)?;
-    Ok(Command::RPUSH(key, val))
+    let mut val_vec = Vec::<String>::new();
+    for i in (5..chunks.len()).step_by(2){
+        val_vec.push(extract_text(chunks, i)?);
+    }
+    Ok(Command::RPUSH(key, val_vec))
 }
