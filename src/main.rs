@@ -143,11 +143,26 @@ fn handle_lrange(mut stream: &TcpStream, key: &String, start: &i32, end: &i32) {
     match result {
         Some(list) => {
             let len = list.len() as i32;
-            if *start >= len || start > end {
+
+            let start_pos = if start >= &0 {
+                *start
+            } else if *start > -1 * len {
+                len as i32 + start
+            } else {
+                0
+            } as usize;
+
+            let end_pos = if end >= &0 {
+                min(*end + 1, len)
+            } else if *end > -1 * len {
+                len as i32 + end + 1
+            } else {
+                0
+            } as usize;
+
+            if start_pos >= len as usize || start_pos > end_pos {
                 write_empty_array(stream);
             } else {
-                let start_pos = max(*start, 0) as usize;
-                let end_pos = min(*end + 1, len) as usize;
                 let slice = &list[start_pos..end_pos];
                 let mut output = format!("*{}\r\n", end_pos - start_pos);
                 for value in slice {
