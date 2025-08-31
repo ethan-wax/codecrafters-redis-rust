@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 use once_cell::sync::Lazy;
 use std::cmp::{max, min};
+use std::collections::btree_map::Values;
 use std::collections::HashMap;
 use std::i32::MIN;
 use std::io::{Read, Write};
@@ -57,6 +58,7 @@ fn handle_connection(mut stream: &TcpStream) {
                     Command::GET(key) => handle_get(stream, &key),
                     Command::RPUSH(key, val_vec) => handle_rpush(stream, &key, &val_vec),
                     Command::LRANGE(key, start, end) => handle_lrange(stream, &key, &start, &end),
+                    Command::LPUSH(key, val_vec) => handle_lpush(stream, &key, &val_vec),
                 }
             }
             Err(e) => {
@@ -173,4 +175,18 @@ fn handle_lrange(mut stream: &TcpStream, key: &String, start: &i32, end: &i32) {
         }
         None => write_empty_array(stream),
     }
+}
+
+fn handle_lpush(mut stream: &TcpStream, key: &String, val_vec: &Vec<String>) {
+    let pos = {
+        let mut list_store_guard = LIST_STORE.lock().unwrap();
+        let list = list_store_guard.entry(key.clone()).or_insert_with(Vec::new);
+        for value in val_vec {
+            list.insert(0, value.clone());
+        }
+        list.len() as i32
+    };
+    stream
+        .write_all(format!(":{}\r\n", pos).as_bytes())
+        .unwrap();
 }

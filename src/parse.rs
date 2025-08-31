@@ -8,7 +8,8 @@ pub enum Command {
     SET(String, String, Option<SystemTime>),
     GET(String),
     RPUSH(String, Vec<String>),
-    LRANGE(String, i32, i32)
+    LRANGE(String, i32, i32),
+    LPUSH(String, Vec<String>)
 }
 
 fn extract_text(chunks: &Vec<&str>, pos: usize) -> Result<String, String> {
@@ -52,6 +53,7 @@ pub fn parse_command(command: &str) -> Result<Command, String> {
         ("*2", "GET") => parse_get(&chunks),
         (_, "RPUSH") => parse_rpush(&chunks),
         ("*4", "LRANGE") => parse_lrange(&chunks),
+        (_, "LPUSH") => parse_lpush(&chunks),
         _ => Err(format!("Command not recognized: {}", args)),
     }
 }
@@ -111,4 +113,13 @@ fn parse_lrange(chunks: &Vec<&str>) -> Result<Command, String> {
     let start = extract_int(chunks, 5)?;
     let end = extract_int(chunks, 7)?;
     Ok(Command::LRANGE(key, start, end))
+}
+
+fn parse_lpush(chunks: &Vec<&str>) -> Result<Command, String> {
+    let key = extract_text(chunks, 3)?;
+    let mut val_vec = Vec::<String>::new();
+    for i in (5..chunks.len()).step_by(2){
+        val_vec.push(extract_text(chunks, i)?);
+    }
+    Ok(Command::LPUSH(key, val_vec))
 }
